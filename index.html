@@ -115,6 +115,13 @@ tfoot td{font-weight:700;border-bottom:none}
 .presets button.on{background:var(--leaf-soft);border-color:var(--leaf);color:var(--leaf)}
 .hint{font-size:.8rem;color:var(--muted);margin:0}
 .editbox{background:var(--bg);border-radius:10px;padding:10px;display:grid;gap:8px;grid-column:1/-1}
+.overlay{position:fixed;inset:0;z-index:50;background:rgba(12,23,41,.55);display:flex;align-items:center;justify-content:center;padding:16px}
+.overlay[hidden]{display:none!important}
+.sheet{background:var(--surface);color:var(--fg);border-radius:16px;border-top:4px solid var(--gold);padding:18px;width:100%;max-width:520px;display:flex;flex-direction:column;gap:12px}
+.vsec h3{margin-bottom:6px;font-size:.95rem;color:var(--turmeric)}
+.vrow{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed var(--line);font-size:.9rem}
+.vrow span:first-child{min-width:0;overflow-wrap:anywhere}
+.vrow span:last-child{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600}
 @media (max-width:440px){.grid3{grid-template-columns:1fr 1fr}.stats{grid-template-columns:1fr 1fr}.stats .stat:last-child{grid-column:1/-1}.bar{grid-template-columns:86px 1fr 70px}}
 @media print{nav.tabs,.noprint,button,.presets,input,select{display:none!important}body{background:#fff;color:#000}section.card{border:1px solid #999;break-inside:avoid}[data-panel]{display:none!important}[data-panel="report"]{display:flex!important}}
 </style>
@@ -150,6 +157,7 @@ tfoot td{font-weight:700;border-bottom:none}
       <input type="date" id="dayPick" aria-label="Day">
       <button type="button" id="nextDay" aria-label="Next day">›</button>
       <button type="button" id="todayBtn">Today</button>
+      <button type="button" class="btn-main" id="viewBtn">View</button>
     </div>
     <section class="card">
       <h2 id="menuH">Today's menu</h2>
@@ -276,6 +284,7 @@ tfoot td{font-weight:700;border-bottom:none}
       <input type="date" id="aDay" aria-label="Attendance day">
       <button type="button" id="aNext" aria-label="Next day">›</button>
       <button type="button" id="aToday">Today</button>
+      <button type="button" class="btn-main" id="aView">View</button>
     </div>
     <section class="card">
       <div class="row-actions" style="justify-content:space-between"><h2 id="aH">Attendance</h2><button type="button" class="btn-small" id="aAllP">Mark all present</button></div>
@@ -330,6 +339,35 @@ tfoot td{font-weight:700;border-bottom:none}
   </div>
 </div>
 
+<div class="overlay" id="lock" hidden>
+  <form class="sheet" id="lockForm" autocomplete="off">
+    <img src="" alt="" id="lockLogo" style="width:72px;height:72px;align-self:center">
+    <h2 id="lockH" style="text-align:center">Enter the book PIN</h2>
+    <p class="hint" id="lockHint" style="text-align:center"></p>
+    <input id="lockPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="PIN" aria-label="PIN" style="text-align:center;font-size:1.3rem;letter-spacing:.3em">
+    <input id="lockPin2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="Type the PIN again" aria-label="Confirm PIN" style="text-align:center;font-size:1.3rem;letter-spacing:.3em" hidden>
+    <button class="btn-main" type="submit">Open the book</button>
+    <div class="status warn" id="lockMsg" style="text-align:center"></div>
+  </form>
+</div>
+
+<div class="overlay" id="viewer" hidden>
+  <div class="sheet" style="max-height:88vh;overflow:auto">
+    <div class="row-actions" style="justify-content:space-between"><div><div class="eyebrow">Day view</div><h2 id="vwH"></h2></div><button type="button" id="vwClose" aria-label="Close">Close</button></div>
+    <div id="vwBody" style="display:grid;gap:14px"></div>
+    <div class="row-actions">
+      <a class="btn-main" id="vwWa" href="https://wa.me/" target="_blank" rel="noopener" style="text-decoration:none;border-radius:10px;padding:9px 14px;font-weight:600">Send on WhatsApp</a>
+      <button type="button" id="vwPdf">Day PDF</button>
+      <button type="button" id="vwEdit">Edit this day</button>
+    </div>
+    <div class="status" id="vwMsg"></div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<!-- Online storage settings live in firebase-config.js (defines window.HK_FIREBASE_CONFIG). Without it, entries stay on each phone. -->
+<script src="firebase-config.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 (function(){
@@ -483,11 +521,37 @@ function renderExpList(box, rows, showDate){
     const amt=el("div","amt num",rs(+e.amount));
     const acts=el("div","acts");
     const eb=el("button","btn-small","Edit"); eb.type="button"; eb.onclick=()=>{ editExp={id:e.id}; renderAll(); };
+    if(showDate){ const vb=el("button","btn-small","View day"); vb.type="button"; vb.onclick=()=>openView(e.date); acts.append(vb); }
     const xb=el("button","btn-small btn-danger","Delete"); xb.type="button";
     armDelete(xb,()=>{ const dd=clone(dayData(e.date)); dd.expenses=(dd.expenses||[]).filter(x=>x.id!==e.id); put("days",e.date,dd); renderAll(); });
     acts.append(eb,xb); r.append(left,amt,acts); box.append(r);
   });
 }
+
+/* ---------- read-only day view ---------- */
+let vwDay=null;
+function openView(day){
+  vwDay=day; const d=dayData(day); const b=$("vwBody"); b.textContent="";
+  $("vwH").textContent=nice(day,{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+  const sec=(title)=>{ const s=el("div","vsec"); s.append(el("h3",null,title)); b.append(s); return s; };
+  const row=(box,l,r)=>{ const x=el("div","vrow"); x.append(el("span",null,l),el("span",null,r||"")); box.append(x); };
+  const m=sec("Menu"); MEALS.forEach(k=>row(m,MEAL_NAMES[k],((d.menu||{})[k]||"").trim()||"–"));
+  const ex=sec("Kitchen expenses"); if((d.expenses||[]).length) d.expenses.forEach(e=>row(ex,e.item+" · "+e.category,rs(+e.amount))); else row(ex,"No expenses","");
+  row(ex,"Kitchen total",rs(sumExp(d)));
+  const pays=Object.values(D.pay).filter(p=>p.date===day);
+  const lp=sec("Labour payments"); if(pays.length) pays.forEach(p=>row(lp,((D.labour[p.who]||{}).name||"Worker")+" · "+p.kind+(p.note?" · "+p.note:""),rs(+p.amount))); else row(lp,"No payments","");
+  const marks=(D.attendance[day]||{}).marks||{}; const act=workers().filter(w=>w.active&&(!w.joined||w.joined<=day));
+  const at=sec("Attendance"); if(act.length) act.forEach(w=>row(at,w.name+(w.role?" · "+w.role:""),({P:"Present",H:"Half day",A:"Absent"}[marks[w.id]]||"Not marked"))); else row(at,"No workers","");
+  const tl=sec("Day total"); row(tl,"Kitchen + labour paid",rs(sumExp(d)+pays.reduce((a,p)=>a+(+p.amount||0),0)));
+  const keep=cur; cur=day; $("vwWa").href="https://wa.me/?text="+encodeURIComponent(dayText()); cur=keep;
+  $("vwMsg").textContent=""; $("viewer").hidden=false; $("vwClose").focus();
+}
+$("viewBtn").onclick=()=>openView(cur);
+$("vwClose").onclick=()=>{ $("viewer").hidden=true; };
+$("viewer").addEventListener("click",ev=>{ if(ev.target===$("viewer")) $("viewer").hidden=true; });
+document.addEventListener("keydown",ev=>{ if(ev.key==="Escape") $("viewer").hidden=true; });
+$("vwEdit").onclick=()=>{ $("viewer").hidden=true; cur=vwDay; document.querySelector('nav.tabs button[data-tab="today"]').click(); };
+$("vwPdf").onclick=()=>{ if(!window.jspdf){ $("vwMsg").textContent="PDF tool didn't load. Check the internet and reload."; return; } const keep=cur; cur=vwDay; const {doc,name}=dayPdf(); cur=keep; saveFile(name,doc.output("blob"),$("vwMsg")); };
 
 /* ---------- presets used by filters ---------- */
 function presetRanges(){ const t=todayStr(); const lm=shift(monthStart(t),-1);
@@ -531,9 +595,11 @@ function renderMenus(){
     const card=el("div","menucard"); const head=el("div","d",nice(k,{weekday:"short",day:"numeric",month:"short",year:"numeric"}));
     card.append(head);
     hits.forEach(x=>{ const row=el("div"); row.append(el("span",null,MEAL_NAMES[x]),document.createTextNode(m[x])); card.append(row); });
-    const open=el("button","btn-small","Open this day"); open.type="button"; open.style.justifySelf="start"; open.style.marginTop="4px";
+    const bt=el("div","row-actions"); bt.style.marginTop="4px";
+    const vb=el("button","btn-small","View day"); vb.type="button"; vb.onclick=()=>openView(k);
+    const open=el("button","btn-small","Edit this day"); open.type="button";
     open.onclick=()=>{ cur=k; document.querySelector('nav.tabs button[data-tab="today"]').click(); };
-    card.append(open); box.append(card);
+    bt.append(vb,open); card.append(bt); box.append(card);
   });
   if(!n) box.append(el("div","empty","No menus match these filters."));
   $("fm_count").textContent=n+" day"+(n===1?"":"s");
@@ -629,6 +695,7 @@ $("aDay").onchange=()=>{ if($("aDay").value){ aDay=$("aDay").value; renderAll();
 $("aPrev").onclick=()=>{ aDay=shift(aDay,-1); renderAll(); };
 $("aNext").onclick=()=>{ aDay=shift(aDay,1); renderAll(); };
 $("aToday").onclick=()=>{ aDay=todayStr(); renderAll(); };
+$("aView").onclick=()=>openView(aDay);
 $("aAllP").onclick=()=>{ const a=clone(D.attendance[aDay]||{marks:{}}); a.marks=a.marks||{};
   workers().filter(w=>w.active&&(!w.joined||w.joined<=aDay)).forEach(w=>{ if(!a.marks[w.id]) a.marks[w.id]="P"; }); put("attendance",aDay,a); $("aMsg").textContent="Everyone not yet marked is now Present."; renderAll(); };
 
@@ -741,6 +808,7 @@ $("bk_file").onchange=ev=>{ const f=ev.target.files[0]; if(!f) return; const r=n
       $("bk_msg").textContent="Restored "+n+" record(s)."; renderAll(); }catch(e){ $("bk_msg").textContent="That file isn't a Kitchen Book backup."; } ev.target.value=""; };
   r.readAsText(f); };
 
+$("lockLogo").src=$("logoImg").src;
 /* ---------- live clock ---------- */
 let lastDay=todayStr();
 function tick(){ const n=new Date();
@@ -767,13 +835,16 @@ function startLocal(){
     localStorage.setItem(LS_KEY+"-t","1"); localStorage.removeItem(LS_KEY+"-t");
   }catch(e){ storeOk=false; }
   $("backupCard").hidden=false; $("rp_print").hidden=false;
-  setStatus(storeOk?"Saved on this phone · take a backup now and then":"This browser blocks storage — entries won't be kept.",!storeOk);
+  setStatus(storeOk?"Saved on this phone only · online sharing not connected yet":"This browser blocks storage — entries won't be kept.",!storeOk);
   renderAll();
 }
 async function start(){
   renderAll();
   let api=null; try{ api=window.claude&&window.claude.use? window.claude : null; }catch(e){}
-  if(!api){ startLocal(); return; }
+  if(!api){
+    if(window.firebase && window.HK_FIREBASE_CONFIG){ startFirebase(); return; }
+    startLocal(); return;
+  }
   try{ db=await api.use("db"); }catch(e){ db=null; }
   try{ dl=await api.use("downloads"); }catch(e){ dl=null; }
   if(!db){ setStatus("Offline view — entries won't be saved here. Open the page signed in to Claude.",true); return; }
@@ -788,6 +859,68 @@ async function start(){
     },()=>setStatus("Lost connection to the saved book. Reload the page.",true));
   });
 }
+/* ---------- shared online book (GitHub build): EMR Firebase, own home-kitchen collections ---------- */
+const PREFIX="homekitchen_";
+async function sha(t){ const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode("emr-hk:"+t)); return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join(""); }
+function startFirebase(){
+  let fs;
+  try{ const app=firebase.apps.length?firebase.app():firebase.initializeApp(window.HK_FIREBASE_CONFIG); fs=app.firestore(); }
+  catch(e){ setStatus("Couldn't reach the online book. Using this phone only for now.",true); startLocal(); return; }
+  db={collection:c=>fs.collection(PREFIX+c)}; mode="db";
+  $("backupCard").hidden=false; $("rp_print").hidden=false;
+  setStatus("Connecting to the online book…");
+  gate(fs).then(()=>{
+    let first=0; const seen={};
+    ["days","labour","attendance","pay"].forEach(c=>{
+      db.collection(c).onSnapshot(snap=>{
+        const next={}; snap.docs.forEach(d=>{ next[d.id]=d.data(); });
+        Object.keys(D[c]).forEach(k=>{ if(!(k in next) && seen[c]) delete D[c][k]; }); Object.assign(D[c],next);
+        if(!seen[c]){ seen[c]=true; if(++first===4){ setStatus("Saved online · same book on every phone"); uploadLocal(); } }
+        renderAll();
+      },err=>{ setStatus(err&&err.code==="permission-denied"?"The online book refused this save. Ask the admin to allow the home-kitchen collections.":"Lost connection to the online book. Check the internet and reload.",true); });
+    });
+  });
+}
+/* entries typed earlier on this phone (before the online book) go up once */
+function uploadLocal(){
+  let raw=null; try{ raw=localStorage.getItem(LS_KEY)||localStorage.getItem(LS_OLD); if(localStorage.getItem(LS_KEY+"-uploaded")) return; }catch(e){ return; }
+  if(!raw) return;
+  let j; try{ j=JSON.parse(raw); }catch(e){ return; }
+  const src=j.days||j.labour?j:{days:j}; let n=0;
+  ["days","labour","attendance","pay"].forEach(c=>Object.entries(src[c]||{}).forEach(([k,v])=>{
+    if(c==="days"&&!/^\d{4}-\d{2}-\d{2}$/.test(k)) return;
+    if(c==="days" && D.days[k]){ // merge expenses + fill empty menu fields
+      const cur=clone(D.days[k]); const ids=new Set((cur.expenses||[]).map(e=>e.id)); let ch=false;
+      (v.expenses||[]).forEach(e=>{ if(!ids.has(e.id)){ (cur.expenses=cur.expenses||[]).push(e); ch=true; } });
+      cur.menu=cur.menu||{}; MEALS.forEach(m=>{ if(!(cur.menu[m]||"").trim() && ((v.menu||{})[m]||"").trim()){ cur.menu[m]=v.menu[m]; ch=true; } });
+      if(ch){ put("days",k,cur); n++; } return; }
+    if(!D[c][k]){ put(c,k,v); n++; }
+  }));
+  try{ localStorage.setItem(LS_KEY+"-uploaded","1"); }catch(e){}
+  if(n) setStatus("Saved online · moved "+n+" earlier entr"+(n===1?"y":"ies")+" from this phone");
+}
+/* simple 4-digit PIN so the public link doesn't show the book to strangers */
+function gate(fs){
+  return new Promise(async resolve=>{
+    const ref=fs.collection(PREFIX+"settings").doc("access");
+    let saved=null; try{ const d=await ref.get(); saved=d.exists?(d.data()||{}).pin:null; }catch(e){ resolve(); return; }
+    let mine=null; try{ mine=localStorage.getItem(LS_KEY+"-pin"); }catch(e){}
+    if(saved && mine===saved){ resolve(); return; }
+    const ov=$("lock"); ov.hidden=false; $("lockH").textContent=saved?"Enter the book PIN":"Set a 4-digit PIN for this book";
+    $("lockHint").textContent=saved?"Ask the family member who set it up.":"Everyone in the family will use this PIN on their phones.";
+    $("lockPin2").hidden=!!saved;
+    $("lockForm").onsubmit=async ev=>{ ev.preventDefault();
+      const p=$("lockPin").value.trim(); if(!/^\d{4,6}$/.test(p)){ $("lockMsg").textContent="Use 4 to 6 numbers."; return; }
+      const h=await sha(p);
+      if(saved){ if(h!==saved){ $("lockMsg").textContent="Wrong PIN. Try again."; $("lockPin").value=""; return; } }
+      else { if(p!==$("lockPin2").value.trim()){ $("lockMsg").textContent="The two PINs don't match."; return; }
+        try{ await ref.set({pin:h,setAt:new Date().toISOString()}); }catch(e){ $("lockMsg").textContent="Couldn't save the PIN online. Check the internet."; return; } }
+      try{ localStorage.setItem(LS_KEY+"-pin",h); }catch(e){}
+      ov.hidden=true; resolve(); };
+    $("lockPin").focus();
+  });
+}
+
 start();
 })();
 </script>
