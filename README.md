@@ -9,4 +9,4 @@ A simple phone-friendly book for the home kitchen.
 
 Entries are saved in the phone's browser. Use **Save backup** every week and **Restore backup** to move to a new phone.
 
-Open it at: https://abdull3117.github.io/emr-home-kitchen-book/
+Open it at: https://vorion3117-create.github.io/emr-home-kitchen-book/
