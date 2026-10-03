@@ -77,6 +77,8 @@ section.card{background:var(--surface);border:1px solid var(--line);border-radiu
 .actions > *{flex:1 1 150px;text-align:center}
 .restore{color:var(--leaf);background:var(--surface);cursor:pointer}
 @media print{ .noprint,.daybar,.addform,.actions,.del,#status,#menuSaved,#copyMsg{display:none!important} body{background:#fff;color:#000} section.card{border:1px solid #999;break-inside:avoid} textarea{border:none;padding:0;resize:none} }
+.savebar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.savebar .btn-main{flex:0 0 auto;min-width:140px}
 .linkbtn{display:inline-block;text-decoration:none;border-radius:10px;padding:10px 14px;font-weight:600;border:1px solid var(--leaf)}
 @media (max-width:420px){.bar{grid-template-columns:86px 1fr 62px}.stats{grid-template-columns:1fr 1fr}.stats .stat:last-child{grid-column:1/-1}}
 @media (prefers-reduced-motion:no-preference){.week .stick,.bar .fill{transition:height .3s,width .3s}}
@@ -107,7 +109,10 @@ section.card{background:var(--surface);border:1px solid var(--line);border-radiu
       <div class="meal"><label for="m_snacks"><b>●</b> Evening snacks</label><textarea id="m_snacks" rows="1" placeholder="e.g. Tea, sundal"></textarea></div>
       <div class="meal"><label for="m_dinner"><b>●</b> Dinner</label><textarea id="m_dinner" rows="1" placeholder="e.g. Chapati, kurma"></textarea></div>
     </div>
-    <div class="status" id="menuSaved"></div>
+    <div class="savebar">
+      <button type="button" class="btn-main" id="saveMenuBtn">Save menu</button>
+      <span class="status" id="menuSaved"></span>
+    </div>
   </section>
 
   <section class="card" aria-labelledby="expH">
@@ -122,6 +127,7 @@ section.card{background:var(--surface);border:1px solid var(--line);border-radiu
       <button class="btn-main full" type="submit" id="addBtn">Add expense</button>
     </form>
     <div class="list" id="expList"></div>
+    <div class="status" id="expSaved" aria-live="polite"></div>
     <div class="total"><span>Total for the day</span><span class="num" id="dayTotal">₹0</span></div>
   </section>
 
@@ -269,13 +275,22 @@ section.card{background:var(--surface);border:1px solid var(--line);border-radiu
     });
   });
 
+  $("saveMenuBtn").onclick=()=>{
+    clearTimeout(menuTimer);
+    const dd=structuredClone(dayData(current)); dd.menu=dd.menu||{};
+    MEALS.forEach(m=>dd.menu[m]=$("m_"+m).value);
+    save(current,dd); renderReport();
+    const t=new Date().toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"});
+    $("menuSaved").textContent = storeOk ? "Menu saved at "+t+"." : "Not saved — this browser blocks storage.";
+  };
+
   $("addForm").addEventListener("submit",ev=>{
     ev.preventDefault();
     const item=$("e_item").value.trim(), amt=parseFloat($("e_amt").value);
     if(!item || !(amt>=0)) return;
     const dd=structuredClone(dayData(current)); dd.expenses=dd.expenses||[];
     dd.expenses.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),item,category:$("e_cat").value,amount:amt});
-    save(current,dd); $("e_item").value=""; $("e_amt").value=""; $("e_item").focus(); renderAll();
+    save(current,dd); $("menuSaved").textContent=""; $("expSaved").textContent = storeOk ? "Saved: "+item+" – "+rs(amt) : "Not saved — this browser blocks storage."; $("e_item").value=""; $("e_amt").value=""; $("e_item").focus(); renderAll();
   });
 
   $("dayPick").addEventListener("change",()=>{ if($("dayPick").value){ current=$("dayPick").value; renderAll(); }});
