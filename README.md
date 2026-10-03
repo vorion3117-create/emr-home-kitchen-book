@@ -1,12 +1,14 @@
 # EMR Home Kitchen Book
 
-A simple phone-friendly book for the home kitchen.
+A phone-friendly house book from EMR Groups.
 
-- Write the day's menu: breakfast, lunch, evening snacks, dinner
-- Add daily expenses with category and amount (₹)
-- See the day total, last 7 days, month total and spending by category
-- Send the report on WhatsApp, save a Day or Month PDF, or print
+- **Today:** write the day's menu and kitchen expenses
+- **Expenses:** filter by dates, category or item; edit or delete; download as Excel (CSV)
+- **Menus:** filter past menus by dates, meal or dish
+- **Labour:** permanent and temporary workers (monthly salary or daily wage), plus salary, advance and bonus payments
+- **Attendance:** Present / Half day / Absent for each worker, with a month summary of earned, paid and due
+- **Report:** consolidated report for any date range — send on WhatsApp, save as PDF, or print
 
-Entries are saved in the phone's browser. Use **Save backup** every week and **Restore backup** to move to a new phone.
+Entries are saved in the phone's browser. Use **Save backup** (Report tab) every week and **Restore backup** to move to a new phone.
 
 Open it at: https://vorion3117-create.github.io/emr-home-kitchen-book/
